@@ -151,6 +151,159 @@ void DMA_IRQHandler(void)
 	dmaBlockCount++;
 }
 
+void setup_dma_for_adc (void) {
+	// Setup DMA for ADC
+
+	/* DMA initialization - enable DMA clocking and reset DMA if needed */
+	Chip_DMA_Init(LPC_DMA);
+	/* Enable DMA controller and use driver provided DMA table for current descriptors */
+	Chip_DMA_Enable(LPC_DMA);
+	Chip_DMA_SetSRAMBase(LPC_DMA, DMA_ADDR(Chip_DMA_Table));
+
+	/* Setup channel 0 for the following configuration:
+	   - High channel priority
+	   - Interrupt A fires on descriptor completion */
+	Chip_DMA_EnableChannel(LPC_DMA, DMA_CH0);
+	Chip_DMA_EnableIntChannel(LPC_DMA, DMA_CH0);
+	Chip_DMA_SetupChannelConfig(LPC_DMA, DMA_CH0,
+			(DMA_CFG_HWTRIGEN
+					//| DMA_CFG_PERIPHREQEN  //?? what's this for???
+					| DMA_CFG_TRIGTYPE_EDGE
+					| DMA_CFG_TRIGPOL_HIGH
+					| DMA_CFG_TRIGBURST_BURST
+					| DMA_CFG_BURSTPOWER_1
+					 | DMA_CFG_CHPRIORITY(0)
+					 ));
+
+	// Attempt to use ADC SEQA to trigger DMA xfer
+	Chip_DMATRIGMUX_SetInputTrig(LPC_DMATRIGMUX, DMA_CH0, DMATRIG_ADC_SEQA_IRQ);
+
+	// DMA is performed in 3 separate chunks (as max allowed in one transfer
+	// is 1024 words). First to go is dmaDescA followed by B and C.
+
+	// DMA descriptor for ADC to memory - note that addresses must
+	// be the END address for source and destination, not the starting address.
+	// DMA operations moves from end to start. [Ref ].
+	dmaDescC.xfercfg = 			 (
+			DMA_XFERCFG_CFGVALID  // Channel descriptor is considered valid
+			| DMA_XFERCFG_SETINTA // DMA Interrupt A (A vs B can be read in ISR)
+			| DMA_XFERCFG_WIDTH_16 // 8,16,32 bits allowed
+			| DMA_XFERCFG_SRCINC_0 // do not increment source
+			| DMA_XFERCFG_DSTINC_1 // increment dst by widthx1
+			| DMA_XFERCFG_XFERCOUNT(DMA_BUFFER_SIZE)
+			);
+	dmaDescC.source = DMA_ADDR ( (&LPC_ADC->DR[ADC_CHANNEL]) );
+	dmaDescC.dest = DMA_ADDR(&adc_buffer[DMA_BUFFER_SIZE*3 - 1]) ;
+	dmaDescC.next = DMA_ADDR(0); // no more descriptors
+
+	dmaDescB.xfercfg = 			 (
+			DMA_XFERCFG_CFGVALID  // Channel descriptor is considered valid
+			| DMA_XFERCFG_RELOAD  // Causes DMA to move to next descriptor when complete
+			| DMA_XFERCFG_SETINTA // DMA Interrupt A (A vs B can be read in ISR)
+			//| DMA_XFERCFG_SWTRIG  // When written by software, the trigger for this channel is set immediately.
+			| DMA_XFERCFG_WIDTH_16 // 8,16,32 bits allowed
+			| DMA_XFERCFG_SRCINC_0 // do not increment source
+			| DMA_XFERCFG_DSTINC_1 // increment dst by widthx1
+			| DMA_XFERCFG_XFERCOUNT(DMA_BUFFER_SIZE)
+			);
+	dmaDescB.source = DMA_ADDR ( (&LPC_ADC->DR[ADC_CHANNEL]) );
+	dmaDescB.dest = DMA_ADDR(&adc_buffer[DMA_BUFFER_SIZE*2 - 1]) ;
+	dmaDescB.next = (uint32_t)&dmaDescC;
+
+	// ADC data register is source of DMA
+	dmaDescA.source = DMA_ADDR ( (&LPC_ADC->DR[ADC_CHANNEL]) );
+	dmaDescA.dest = DMA_ADDR(&adc_buffer[DMA_BUFFER_SIZE - 1]) ;
+	dmaDescA.next = (uint32_t)&dmaDescB;
+
+
+
+	// Enable DMA interrupt. Will be invoked at end of DMA transfer.
+	NVIC_EnableIRQ(DMA_IRQn);
+
+	/* Setup transfer descriptor and validate it */
+	Chip_DMA_SetupTranChannel(LPC_DMA, DMA_CH0, &dmaDescA);
+	Chip_DMA_SetValidChannel(LPC_DMA, DMA_CH0);
+
+	// Setup data transfer and hardware trigger
+	// See "Transfer Configuration registers" UM10800, §12.6.18, Table 173, page 179
+	Chip_DMA_SetupChannelTransfer(LPC_DMA, DMA_CH0,
+			 (
+				DMA_XFERCFG_CFGVALID  // Channel descriptor is considered valid
+				| DMA_XFERCFG_RELOAD  // Causes DMA to move to next descriptor when complete
+				| DMA_XFERCFG_SETINTA // DMA Interrupt A (A vs B can be read in ISR)
+				//| DMA_XFERCFG_SWTRIG  // When written by software, the trigger for this channel is set immediately.
+				| DMA_XFERCFG_WIDTH_16 // 8,16,32 bits allowed
+				| DMA_XFERCFG_SRCINC_0 // do not increment source
+				| DMA_XFERCFG_DSTINC_1 // increment dst by widthx1
+				| DMA_XFERCFG_XFERCOUNT(DMA_BUFFER_SIZE)
+				)
+				);
+}
+
+void setup_sct_for_adc (void) {
+
+	//
+	// Setup SCT to trigger ADC sampling
+	//
+
+	Chip_SCT_Init(LPC_SCT);
+
+	/* Stop the SCT before configuration */
+	Chip_SCTPWM_Stop(LPC_SCT);
+
+	// Match/capture mode register. (ref UM10800 section 16.6.11, Table 232, page 273)
+	// Determines if match/capture operate as match or capture. Want all match.
+	LPC_SCT->REGMODE_U = 0;
+
+
+	// Event 0 control: (ref UM10800 section 16.6.25, Table 247, page 282).
+	// set MATCHSEL (bits 3:0) = MATCH0 register(0)
+	// set COMBMODE (bits 13:12)= MATCH only(1)
+	// So Event0 is triggered on match of MATCH0
+	LPC_SCT->EV[0].CTRL =   (0 << 0 )
+							| 1 << 12;
+	// Event enable register (ref UM10800 section 16.6.24, Table 246, page 281)
+	// Enable Event0 in State0 (default state). We are not using states,
+	// so this enables Event0 in the default State0.
+	// Set STATEMSK0=1
+	LPC_SCT->EV[0].STATE = 1<<0;
+
+
+	// Configure Event2 to be triggered on Match2
+	LPC_SCT->EV[2].CTRL =
+						(2 << 0) // The match register (MATCH2) associated with this event
+						| (1 << 12); // COMBMODE=1 (MATCH only)
+	LPC_SCT->EV[2].STATE = 1; // Enable Event2 in State0 (default state)
+
+
+	/* Clear the output in-case of conflict */
+	int pin = 0;
+	LPC_SCT->RES = (LPC_SCT->RES & ~(3 << (pin << 1))) | (0x01 << (pin << 1));
+
+	/* Set and Clear do not depend on direction */
+	LPC_SCT->OUTPUTDIRCTRL = (LPC_SCT->OUTPUTDIRCTRL & ~((3 << (pin << 1))|SCT_OUTPUTDIRCTRL_RESERVED));
+
+
+	// Set SCT Counter to count 32-bits and reset to 0 after reaching MATCH0
+	Chip_SCT_Config(LPC_SCT, SCT_CONFIG_32BIT_COUNTER | SCT_CONFIG_AUTOLIMIT_L);
+
+	// Setup SCT for ADC/DMA sample timing.
+	uint32_t clock_hz =  Chip_Clock_GetSystemClockRate();
+	Chip_SCT_SetMatchReload(LPC_SCT, SCT_MATCH_2, (clock_hz/ADC_SAMPLE_RATE)/2 );
+	Chip_SCT_SetMatchReload(LPC_SCT, SCT_MATCH_0,  clock_hz/ADC_SAMPLE_RATE);
+
+	// Using SCT0_OUT3 to trigger ADC sampling
+	// Set SCT0_OUT3 on Event0 (Event0 configured to occur on Match0)
+	LPC_SCT->OUT[3].SET = 1 << 0;
+	// Clear SCT0_OUT3 on Event2 (Event2 configured to occur on Match2)
+	LPC_SCT->OUT[3].CLR = 1 << 2;
+
+	// SwitchMatrix: Assign SCT_OUT3 to external pin for debugging
+	//Chip_Clock_EnablePeriphClock(SYSCTL_CLOCK_SWM);
+	//Chip_SWM_MovablePinAssign(SWM_SCT_OUT3_O, PIN_SCT_DEBUG);
+	//Chip_Clock_DisablePeriphClock(SYSCTL_CLOCK_SWM);
+
+}
 
 int main(void) {
 
@@ -241,10 +394,13 @@ int main(void) {
 	Chip_ADC_EnableSequencer(LPC_ADC, ADC_SEQA_IDX);
 
 
+	//
+	// Main loop
+	//
 	while (1) {
 
 		// Pulse transducer
-		for (i = 0; i < 4; i++) {
+		for (i = 0; i < 8; i++) {
 			Chip_GPIO_SetPinState(LPC_GPIO_PORT,0,PIN_TRANSDUCER_TX_A,true);
 			Chip_GPIO_SetPinState(LPC_GPIO_PORT,0,PIN_TRANSDUCER_TX_B,false);
 			for (j = 0; j<15; j++) {
@@ -257,206 +413,49 @@ int main(void) {
 			}
 		}
 
-	// Setup DMA for ADC
 
-	/* DMA initialization - enable DMA clocking and reset DMA if needed */
-	Chip_DMA_Init(LPC_DMA);
-	/* Enable DMA controller and use driver provided DMA table for current descriptors */
-	Chip_DMA_Enable(LPC_DMA);
-	Chip_DMA_SetSRAMBase(LPC_DMA, DMA_ADDR(Chip_DMA_Table));
+		setup_dma_for_adc();
 
-	/* Setup channel 0 for the following configuration:
-	   - High channel priority
-	   - Interrupt A fires on descriptor completion */
-	Chip_DMA_EnableChannel(LPC_DMA, DMA_CH0);
-	Chip_DMA_EnableIntChannel(LPC_DMA, DMA_CH0);
-	Chip_DMA_SetupChannelConfig(LPC_DMA, DMA_CH0,
-			(DMA_CFG_HWTRIGEN
-					//| DMA_CFG_PERIPHREQEN  //?? what's this for???
-					| DMA_CFG_TRIGTYPE_EDGE
-					| DMA_CFG_TRIGPOL_HIGH
-					| DMA_CFG_TRIGBURST_BURST
-					| DMA_CFG_BURSTPOWER_1
-					 | DMA_CFG_CHPRIORITY(0)
-					 ));
-
-	// Attempt to use ADC SEQA to trigger DMA xfer
-	Chip_DMATRIGMUX_SetInputTrig(LPC_DMATRIGMUX, DMA_CH0, DMATRIG_ADC_SEQA_IRQ);
-
-	// DMA is performed in 3 separate chunks (as max allowed in one transfer
-	// is 1024 words). First to go is dmaDescA followed by B and C.
-
-	// DMA descriptor for ADC to memory - note that addresses must
-	// be the END address for source and destination, not the starting address.
-	// DMA operations moves from end to start. [Ref ].
-	dmaDescC.xfercfg = 			 (
-			DMA_XFERCFG_CFGVALID  // Channel descriptor is considered valid
-			| DMA_XFERCFG_SETINTA // DMA Interrupt A (A vs B can be read in ISR)
-			| DMA_XFERCFG_WIDTH_16 // 8,16,32 bits allowed
-			| DMA_XFERCFG_SRCINC_0 // do not increment source
-			| DMA_XFERCFG_DSTINC_1 // increment dst by widthx1
-			| DMA_XFERCFG_XFERCOUNT(DMA_BUFFER_SIZE)
-			);
-	dmaDescC.source = DMA_ADDR ( (&LPC_ADC->DR[ADC_CHANNEL]) );
-	dmaDescC.dest = DMA_ADDR(&adc_buffer[DMA_BUFFER_SIZE*3 - 1]) ;
-	dmaDescC.next = DMA_ADDR(0); // no more descriptors
-
-	dmaDescB.xfercfg = 			 (
-			DMA_XFERCFG_CFGVALID  // Channel descriptor is considered valid
-			| DMA_XFERCFG_RELOAD  // Causes DMA to move to next descriptor when complete
-			| DMA_XFERCFG_SETINTA // DMA Interrupt A (A vs B can be read in ISR)
-			//| DMA_XFERCFG_SWTRIG  // When written by software, the trigger for this channel is set immediately.
-			| DMA_XFERCFG_WIDTH_16 // 8,16,32 bits allowed
-			| DMA_XFERCFG_SRCINC_0 // do not increment source
-			| DMA_XFERCFG_DSTINC_1 // increment dst by widthx1
-			| DMA_XFERCFG_XFERCOUNT(DMA_BUFFER_SIZE)
-			);
-	dmaDescB.source = DMA_ADDR ( (&LPC_ADC->DR[ADC_CHANNEL]) );
-	dmaDescB.dest = DMA_ADDR(&adc_buffer[DMA_BUFFER_SIZE*2 - 1]) ;
-	dmaDescB.next = (uint32_t)&dmaDescC;
-
-	// ADC data register is source of DMA
-	dmaDescA.source = DMA_ADDR ( (&LPC_ADC->DR[ADC_CHANNEL]) );
-	dmaDescA.dest = DMA_ADDR(&adc_buffer[DMA_BUFFER_SIZE - 1]) ;
-	dmaDescA.next = (uint32_t)&dmaDescB;
+		setup_sct_for_adc();
 
 
+		// Start SCT
+		Chip_SCT_ClearControl(LPC_SCT, SCT_CTRL_HALT_L | SCT_CTRL_HALT_H);
 
-	// Enable DMA interrupt. Will be invoked at end of DMA transfer.
-	NVIC_EnableIRQ(DMA_IRQn);
-
-	/* Setup transfer descriptor and validate it */
-	Chip_DMA_SetupTranChannel(LPC_DMA, DMA_CH0, &dmaDescA);
-	Chip_DMA_SetValidChannel(LPC_DMA, DMA_CH0);
-
-	// Setup data transfer and hardware trigger
-	// See "Transfer Configuration registers" UM10800, §12.6.18, Table 173, page 179
-	Chip_DMA_SetupChannelTransfer(LPC_DMA, DMA_CH0,
-			 (
-				DMA_XFERCFG_CFGVALID  // Channel descriptor is considered valid
-				| DMA_XFERCFG_RELOAD  // Causes DMA to move to next descriptor when complete
-				| DMA_XFERCFG_SETINTA // DMA Interrupt A (A vs B can be read in ISR)
-				//| DMA_XFERCFG_SWTRIG  // When written by software, the trigger for this channel is set immediately.
-				| DMA_XFERCFG_WIDTH_16 // 8,16,32 bits allowed
-				| DMA_XFERCFG_SRCINC_0 // do not increment source
-				| DMA_XFERCFG_DSTINC_1 // increment dst by widthx1
-				| DMA_XFERCFG_XFERCOUNT(DMA_BUFFER_SIZE)
-				)
-				);
+		// Loop until dmaBlockCount==3 (this is updated in the DMA interrupt service routine)
+		dmaBlockCount = 0;
+		while (dmaBlockCount < 3) {
+			// Save power by sleeping as much as possible while waiting for DMAs to complete.
+			__WFI();
+		}
 
 
-	//
-	// Setup SCT to trigger ADC sampling
-	//
+		// Done with ADC sampling, stop and switch off SCT, ADC
+		//Chip_SCT_DeInit(LPC_SCT);
+		//Chip_ADC_DeInit(LPC_ADC);
+		//NVIC_DisableIRQ(DMA_IRQn);
 
+		// DMA complete. Now shift ADC data register values 4 bits right to yield
+		// 12 bit ADC data in range 0 - 4095
+		for (i = 0; i < DMA_BUFFER_SIZE * 3; i++) {
+			adc_buffer[i] >>= 4;
+		}
 
-	Chip_SCT_Init(LPC_SCT);
-
-	/* Stop the SCT before configuration */
-	Chip_SCTPWM_Stop(LPC_SCT);
-
-	// Match/capture mode register. (ref UM10800 section 16.6.11, Table 232, page 273)
-	// Determines if match/capture operate as match or capture. Want all match.
-	LPC_SCT->REGMODE_U = 0;
-
-
-	// Event 0 control: (ref UM10800 section 16.6.25, Table 247, page 282).
-	// set MATCHSEL (bits 3:0) = MATCH0 register(0)
-	// set COMBMODE (bits 13:12)= MATCH only(1)
-	// So Event0 is triggered on match of MATCH0
-	LPC_SCT->EV[0].CTRL =   (0 << 0 )
-							| 1 << 12;
-	// Event enable register (ref UM10800 section 16.6.24, Table 246, page 281)
-	// Enable Event0 in State0 (default state). We are not using states,
-	// so this enables Event0 in the default State0.
-	// Set STATEMSK0=1
-	LPC_SCT->EV[0].STATE = 1<<0;
-
-
-	// Configure Event2 to be triggered on Match2
-	LPC_SCT->EV[2].CTRL =
-						(2 << 0) // The match register (MATCH2) associated with this event
-						| (1 << 12); // COMBMODE=1 (MATCH only)
-	LPC_SCT->EV[2].STATE = 1; // Enable Event2 in State0 (default state)
-
-
-	/* Clear the output in-case of conflict */
-	int pin = 0;
-	LPC_SCT->RES = (LPC_SCT->RES & ~(3 << (pin << 1))) | (0x01 << (pin << 1));
-
-	/* Set and Clear do not depend on direction */
-	LPC_SCT->OUTPUTDIRCTRL = (LPC_SCT->OUTPUTDIRCTRL & ~((3 << (pin << 1))|SCT_OUTPUTDIRCTRL_RESERVED));
-
-
-	// Set SCT Counter to count 32-bits and reset to 0 after reaching MATCH0
-	Chip_SCT_Config(LPC_SCT, SCT_CONFIG_32BIT_COUNTER | SCT_CONFIG_AUTOLIMIT_L);
-
-
-
-
-
-	// Setup SCT for ADC/DMA sample timing.
-	uint32_t clock_hz =  Chip_Clock_GetSystemClockRate();
-	Chip_SCT_SetMatchReload(LPC_SCT, SCT_MATCH_2, (clock_hz/ADC_SAMPLE_RATE)/2 );
-	Chip_SCT_SetMatchReload(LPC_SCT, SCT_MATCH_0,  clock_hz/ADC_SAMPLE_RATE);
-
-	// Using SCT0_OUT3 to trigger ADC sampling
-	// Set SCT0_OUT3 on Event0 (Event0 configured to occur on Match0)
-	LPC_SCT->OUT[3].SET = 1 << 0;
-	// Clear SCT0_OUT3 on Event2 (Event2 configured to occur on Match2)
-	LPC_SCT->OUT[3].CLR = 1 << 2;
-
-	// SwitchMatrix: Assign SCT_OUT3 to external pin for debugging
-	//Chip_Clock_EnablePeriphClock(SYSCTL_CLOCK_SWM);
-	//Chip_SWM_MovablePinAssign(SWM_SCT_OUT3_O, PIN_SCT_DEBUG);
-	//Chip_Clock_DisablePeriphClock(SYSCTL_CLOCK_SWM);
-
-
-
-
-
-	// Start SCT
-	Chip_SCT_ClearControl(LPC_SCT, SCT_CTRL_HALT_L | SCT_CTRL_HALT_H);
-
-
-
-	// Loop until dmaBlockCount==3 (this is updated in the DMA interrupt service routine)
-	dmaBlockCount = 0;
-	while (dmaBlockCount < 3) {
-		// Save power by sleeping as much as possible while waiting for DMAs to complete.
-		__WFI();
-	}
-
-	Chip_GPIO_SetPinState(LPC_GPIO_PORT, 0, PIN_TRANSDUCER_TX_A, false);
-	Chip_GPIO_SetPinState(LPC_GPIO_PORT, 0, PIN_TRANSDUCER_TX_B, true);
-
-	// Done with ADC sampling, stop and switch off SCT, ADC
-	//Chip_SCT_DeInit(LPC_SCT);
-	//Chip_ADC_DeInit(LPC_ADC);
-	//NVIC_DisableIRQ(DMA_IRQn);
-
-	// DMA complete. Now shift ADC data register values 4 bits right to yield
-	// 12 bit ADC data in range 0 - 4095
-	for (i = 0; i < DMA_BUFFER_SIZE * 3; i++) {
-		adc_buffer[i] >>= 4;
-	}
-
-	// Output ADC values to UART.
-	// Format: record-number adc-value.
-	// One record per line.  Suggest using GnuPlot to plot them.
-	for (i = 0; i < DMA_BUFFER_SIZE * 3; i++) {
-
-		// It would be nice to use libc, but complicates packing up for others to use.
-		//printf ("%d %d\n", i, adc_buffer[i]);
-
-		// Use simple UART printing functions embedded in C file instead of libc.
-		//print_decimal(i);
-		print_byte(' ');
-		print_decimal(adc_buffer[i]);
-
-	}
-	print_byte('\r');
-	print_byte('\n');
+		// Output ADC values to UART.
+		// Format: record-number adc-value.
+		// One record per line.  Suggest using GnuPlot to plot them.
+//#if (TRUE)
+		for (i = 0; i < DMA_BUFFER_SIZE * 3; i++) {
+			// It would be nice to use libc, but complicates packing up for others to use.
+			//printf ("%d %d\n", i, adc_buffer[i]);
+			// Use simple UART printing functions embedded in C file instead of libc.
+			//print_decimal(i);
+			print_byte(' ');
+			print_decimal(adc_buffer[i]);
+		}
+		print_byte('\r');
+		print_byte('\n');
+//#endif
 
 	}
 
