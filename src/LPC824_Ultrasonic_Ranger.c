@@ -39,7 +39,9 @@
 //
 // Hardware configuration
 //
-#define UART_BAUD_RATE 115200
+//#define UART_BAUD_RATE 115200
+#define UART_BAUD_RATE 230400
+
 #define ADC_CHANNEL 3
 #define ADC_SAMPLE_RATE 500000
 
@@ -50,6 +52,10 @@
 #define PIN_UART_TXD 4
 // General purpose debug pin
 #define PIN_DEBUG 14
+
+#define PIN_TRANSDUCER_TX_A 9
+#define PIN_TRANSDUCER_TX_B 15
+
 // Assign SCT0_OUT3 to external pin for debugging
 #define PIN_SCT_DEBUG 15
 
@@ -148,13 +154,19 @@ void DMA_IRQHandler(void)
 
 int main(void) {
 
-	int i;
+	int i,j;
 
 	//
 	// Initialize GPIO
 	//
 	Chip_GPIO_Init(LPC_GPIO_PORT);
 	Chip_GPIO_SetPinDIROutput(LPC_GPIO_PORT, 0, PIN_DEBUG);
+
+	Chip_GPIO_SetPinDIROutput(LPC_GPIO_PORT, 0, PIN_TRANSDUCER_TX_A);
+	Chip_GPIO_SetPinDIROutput(LPC_GPIO_PORT, 0, PIN_TRANSDUCER_TX_B);
+
+
+
 	Chip_GPIO_SetPinState(LPC_GPIO_PORT, 0, 15, false);
 
 	//
@@ -229,7 +241,21 @@ int main(void) {
 	Chip_ADC_EnableSequencer(LPC_ADC, ADC_SEQA_IDX);
 
 
+	while (1) {
 
+		// Pulse transducer
+		for (i = 0; i < 4; i++) {
+			Chip_GPIO_SetPinState(LPC_GPIO_PORT,0,PIN_TRANSDUCER_TX_A,true);
+			Chip_GPIO_SetPinState(LPC_GPIO_PORT,0,PIN_TRANSDUCER_TX_B,false);
+			for (j = 0; j<15; j++) {
+			__NOP();
+			}
+			Chip_GPIO_SetPinState(LPC_GPIO_PORT,0,PIN_TRANSDUCER_TX_A,false);
+			Chip_GPIO_SetPinState(LPC_GPIO_PORT,0,PIN_TRANSDUCER_TX_B,true);
+			for (j = 0; j<15; j++) {
+			__NOP();
+			}
+		}
 
 	// Setup DMA for ADC
 
@@ -381,9 +407,13 @@ int main(void) {
 	LPC_SCT->OUT[3].CLR = 1 << 2;
 
 	// SwitchMatrix: Assign SCT_OUT3 to external pin for debugging
-	Chip_Clock_EnablePeriphClock(SYSCTL_CLOCK_SWM);
-	Chip_SWM_MovablePinAssign(SWM_SCT_OUT3_O, PIN_SCT_DEBUG);
-	Chip_Clock_DisablePeriphClock(SYSCTL_CLOCK_SWM);
+	//Chip_Clock_EnablePeriphClock(SYSCTL_CLOCK_SWM);
+	//Chip_SWM_MovablePinAssign(SWM_SCT_OUT3_O, PIN_SCT_DEBUG);
+	//Chip_Clock_DisablePeriphClock(SYSCTL_CLOCK_SWM);
+
+
+
+
 
 	// Start SCT
 	Chip_SCT_ClearControl(LPC_SCT, SCT_CTRL_HALT_L | SCT_CTRL_HALT_H);
@@ -397,10 +427,13 @@ int main(void) {
 		__WFI();
 	}
 
+	Chip_GPIO_SetPinState(LPC_GPIO_PORT, 0, PIN_TRANSDUCER_TX_A, false);
+	Chip_GPIO_SetPinState(LPC_GPIO_PORT, 0, PIN_TRANSDUCER_TX_B, true);
+
 	// Done with ADC sampling, stop and switch off SCT, ADC
-	Chip_SCT_DeInit(LPC_SCT);
-	Chip_ADC_DeInit(LPC_ADC);
-	NVIC_DisableIRQ(DMA_IRQn);
+	//Chip_SCT_DeInit(LPC_SCT);
+	//Chip_ADC_DeInit(LPC_ADC);
+	//NVIC_DisableIRQ(DMA_IRQn);
 
 	// DMA complete. Now shift ADC data register values 4 bits right to yield
 	// 12 bit ADC data in range 0 - 4095
@@ -417,16 +450,14 @@ int main(void) {
 		//printf ("%d %d\n", i, adc_buffer[i]);
 
 		// Use simple UART printing functions embedded in C file instead of libc.
-		print_decimal(i);
+		//print_decimal(i);
 		print_byte(' ');
 		print_decimal(adc_buffer[i]);
-		print_byte('\r');
-		print_byte('\n');
-	}
 
-	// Done. Sleep forever.
-	while (1) {
-		__WFI();
+	}
+	print_byte('\r');
+	print_byte('\n');
+
 	}
 
 }
