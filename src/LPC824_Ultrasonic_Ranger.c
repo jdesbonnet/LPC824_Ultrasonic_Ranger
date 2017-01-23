@@ -444,18 +444,21 @@ int main(void) {
 		// Output ADC values to UART.
 		// Format: record-number adc-value.
 		// One record per line.  Suggest using GnuPlot to plot them.
-//#if (TRUE)
 		for (i = 0; i < DMA_BUFFER_SIZE * 3; i++) {
 			// It would be nice to use libc, but complicates packing up for others to use.
 			//printf ("%d %d\n", i, adc_buffer[i]);
 			// Use simple UART printing functions embedded in C file instead of libc.
 			//print_decimal(i);
-			print_byte(' ');
-			print_decimal(adc_buffer[i]);
+			//print_byte(' ');
+			//print_decimal(adc_buffer[i]);
+
+			// Base64 encoded for faster throughput. First byte upper (most
+			// significant) 6 bits of ADC reading, second byte lower 6 bits.
+			print_byte(((adc_buffer[i]>>6)&0x3f) + 'A');
+			print_byte((adc_buffer[i]&0x3f) + 'A');
 		}
 		print_byte('\r');
 		print_byte('\n');
-//#endif
 
 	}
 
