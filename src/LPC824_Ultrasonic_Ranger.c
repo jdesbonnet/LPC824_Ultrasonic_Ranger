@@ -444,6 +444,10 @@ int main(void) {
 		// Output ADC values to UART.
 		// Format: record-number adc-value.
 		// One record per line.  Suggest using GnuPlot to plot them.
+
+		// Record header
+		print_byte('W');
+		print_byte(' ');
 		for (i = 0; i < DMA_BUFFER_SIZE * 3; i++) {
 			// It would be nice to use libc, but complicates packing up for others to use.
 			//printf ("%d %d\n", i, adc_buffer[i]);
