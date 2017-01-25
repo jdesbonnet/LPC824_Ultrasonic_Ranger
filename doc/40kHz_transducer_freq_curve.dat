@@ -1,0 +1,37 @@
+#
+# Frequency response of cheap 40kHz ultrasonic transducers. 
+#
+#
+# Method: a transmitter and transducer are taped together (separation distance 0).
+# Oscilloscope WAVEGEN set to 5V peak-to-peak sine wave, and receiver connected 
+# to channel on oscilloscope set to 2V per division. Frequency varied around 
+# 40kHz using WAVEGEN menu. Following data is frequency (kHz) and p-p voltage
+# measured on receiver terminals with scope probe
+#
+# Measured on 24 Jan 2017. Instrument: DSO-X 3014A oscilloscope.
+#
+#
+39.0 1.6
+39.2 2.2
+39.5 3.8
+39.7 5.8
+39.8 7.0
+39.9 8.2
+40.0 9.3
+40.1 10.1 
+40.2 10.7
+40.3 11.3
+40.4 11.6
+40.5 11.6
+40.6 10.9
+40.7 9.6
+40.8 8.2
+40.9 6.9
+41.0 5.8
+41.2 4.3
+41.5 3.1
+41.7 2.7
+42.0 2.3
+42.5 1.3
+
+
