@@ -479,26 +479,10 @@ int main(void) {
 	//
 	while (1) {
 
-		// Pulse transducer
-		/*
-		for (i = 0; i < 8; i++) {
-			Chip_GPIO_SetPinState(LPC_GPIO_PORT,0,PIN_TRANSDUCER_TX_A,true);
-			Chip_GPIO_SetPinState(LPC_GPIO_PORT,0,PIN_TRANSDUCER_TX_B,false);
-			for (j = 0; j<15; j++) {
-			__NOP();
-			}
-			Chip_GPIO_SetPinState(LPC_GPIO_PORT,0,PIN_TRANSDUCER_TX_A,false);
-			Chip_GPIO_SetPinState(LPC_GPIO_PORT,0,PIN_TRANSDUCER_TX_B,true);
-			for (j = 0; j<15; j++) {
-			__NOP();
-			}
-		}
-		*/
-
 		// Setup SCT for driving transducer and start SCT
 		setup_sct_for_transducer();
 		Chip_SCT_ClearControl(LPC_SCT, SCT_CTRL_HALT_L | SCT_CTRL_HALT_H);
-		for (i = 0; i < 200; i++) {
+		for (i = 0; i < 400; i++) {
 			__NOP();
 		}
 		Chip_SCT_SetControl(LPC_SCT, SCT_CTRL_HALT_L | SCT_CTRL_HALT_H);
