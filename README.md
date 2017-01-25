@@ -12,3 +12,7 @@ Observation: useful bandwidth is only 1kHz centered at about 40.5kHz.
 
 ![frequency response curve](./doc/frequency-response.png)
 
+
+Pulse (yellow) and echo (green) on oscilloscope:
+
+![echogram](./doc/scope_180.png)
