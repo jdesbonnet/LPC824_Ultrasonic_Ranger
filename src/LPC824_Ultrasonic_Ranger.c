@@ -43,6 +43,12 @@
 #define UART_BAUD_RATE 230400
 
 #define ADC_CHANNEL 3
+
+// Sample period = 1024*3 / ADC_SAMPLE_RATE
+// 500ksps: 6.1ms (1044mm)
+// 800ksps: 3.84ms
+// 1200ksps: 2.56ms (435mm)
+// Max sample rate 1200ksps.
 #define ADC_SAMPLE_RATE 500000
 
 // Define function to pin mapping. Pin numbers here refer to PIO0_n
