@@ -52,6 +52,7 @@
 #define ADC_SAMPLE_RATE 500000
 
 #define TRANSDUCER_FREQUENCY 40000
+#define PULSE_CYCLE_COUNT 1
 
 // Define function to pin mapping. Pin numbers here refer to PIO0_n
 // and is not the same as a package pin number.
@@ -61,8 +62,8 @@
 // General purpose debug pin
 #define PIN_DEBUG 14
 
-#define PIN_TRANSDUCER_TX_A 9
-#define PIN_TRANSDUCER_TX_B 15
+#define PIN_TRANSDUCER_TX_A 15
+#define PIN_TRANSDUCER_TX_B 9
 
 // Assign SCT0_OUT3 to external pin for debugging
 #define PIN_SCT_DEBUG 15
@@ -78,6 +79,7 @@ static DMA_CHDESC_T dmaDescC;
 static uint16_t adc_buffer[DMA_BUFFER_SIZE*3];
 
 static volatile int dmaBlockCount = 0;
+static volatile int numPulseCycle = 0;
 
 
 /**
@@ -157,6 +159,20 @@ void DMA_IRQHandler(void)
 
 	// Increment the DMA counter. When 3 the main loop knows we're done.
 	dmaBlockCount++;
+}
+
+/**
+ * @brief	Handle interrupt from State Configurable Timer
+ * @return	Nothing
+ */
+void SCT_IRQHandler(void)
+{
+
+	numPulseCycle++;
+	debug_pin_pulse(1);
+
+	/* Clear the SCT Event 0 Interrupt */
+	Chip_SCT_ClearEventFlag(LPC_SCT, SCT_EVT_0);
 }
 
 void setup_dma_for_adc (void) {
@@ -253,7 +269,8 @@ void setup_sct_for_transducer (void) {
 	//
 	// Setup SCT to produce a driving signal for 40kHz transducer. Require
 	// 40kHz square wave with 50% duty cycle. But require output on two pins
-	// in anti-phase with each other. Ie pin A and B where A == !B
+	// in anti-phase with each other. Ie pin A and B where A == !B. Event0
+	// occurs at the end of the cycle, Event2 in the middle of the cycle.
 	//
 
 	Chip_SCT_Init(LPC_SCT);
@@ -279,19 +296,22 @@ void setup_sct_for_transducer (void) {
 	LPC_SCT->EV[0].STATE = 1<<0;
 
 
-	// Configure Event2 to be triggered on Match2
+	// Configure Event2 to be triggered on Match2. This occurs mid-cycle.
 	LPC_SCT->EV[2].CTRL =
 						(2 << 0) // The match register (MATCH2) associated with this event
 						| (1 << 12); // COMBMODE=1 (MATCH only)
 	LPC_SCT->EV[2].STATE = 1; // Enable Event2 in State0 (default state)
 
 
-	/* Clear the output in-case of conflict */
-	int pin = 0;
-	LPC_SCT->RES = (LPC_SCT->RES & ~(3 << (pin << 1))) | (0x01 << (pin << 1));
+	// Clear the output in-case of conflict.
+	// Ref UM10800 section 16.6.14 SCT conflict resolution regiser
+	// TODO: explain
+	// int pin=0
+	//LPC_SCT->RES = (LPC_SCT->RES & ~(3 << (pin << 1))) | (0x01 << (pin << 1));
+	LPC_SCT->RES = (1<<0);
 
 	/* Set and Clear do not depend on direction */
-	LPC_SCT->OUTPUTDIRCTRL = (LPC_SCT->OUTPUTDIRCTRL & ~((3 << (pin << 1))|SCT_OUTPUTDIRCTRL_RESERVED));
+	//LPC_SCT->OUTPUTDIRCTRL = (LPC_SCT->OUTPUTDIRCTRL & ~((3 << (pin << 1))|SCT_OUTPUTDIRCTRL_RESERVED));
 
 
 	// Set SCT Counter to count 32-bits and reset to 0 after reaching MATCH0
@@ -316,6 +336,11 @@ void setup_sct_for_transducer (void) {
 	Chip_SWM_MovablePinAssign(SWM_SCT_OUT0_O, PIN_TRANSDUCER_TX_A);
 	Chip_SWM_MovablePinAssign(SWM_SCT_OUT1_O, PIN_TRANSDUCER_TX_B);
 	Chip_Clock_DisablePeriphClock(SYSCTL_CLOCK_SWM);
+
+	// Enable IRQ at the end of each cycle (Event0) so that a different period
+	// can be loaded into the match registers.
+	Chip_SCT_EnableEventInt(LPC_SCT, SCT_EVT_2);
+	NVIC_EnableIRQ(SCT_IRQn);
 
 }
 
@@ -481,9 +506,11 @@ int main(void) {
 
 		// Setup SCT for driving transducer and start SCT
 		setup_sct_for_transducer();
+		numPulseCycle = 0;
+		debug_pin_pulse(2);
 		Chip_SCT_ClearControl(LPC_SCT, SCT_CTRL_HALT_L | SCT_CTRL_HALT_H);
-		for (i = 0; i < 400; i++) {
-			__NOP();
+		while (numPulseCycle < PULSE_CYCLE_COUNT) {
+			__WFI();
 		}
 		Chip_SCT_SetControl(LPC_SCT, SCT_CTRL_HALT_L | SCT_CTRL_HALT_H);
 
