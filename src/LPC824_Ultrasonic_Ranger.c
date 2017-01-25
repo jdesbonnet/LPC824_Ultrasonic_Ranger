@@ -51,6 +51,8 @@
 // Max sample rate 1200ksps.
 #define ADC_SAMPLE_RATE 500000
 
+#define TRANSDUCER_FREQUENCY 40000
+
 // Define function to pin mapping. Pin numbers here refer to PIO0_n
 // and is not the same as a package pin number.
 // Use PIO0_0 and PIO0_4 for UART RXD, TXD (same as ISP)
@@ -246,10 +248,81 @@ void setup_dma_for_adc (void) {
 				);
 }
 
+void setup_sct_for_transducer (void) {
+
+	//
+	// Setup SCT to produce a driving signal for 40kHz transducer. Require
+	// 40kHz square wave with 50% duty cycle. But require output on two pins
+	// in anti-phase with each other. Ie pin A and B where A == !B
+	//
+
+	Chip_SCT_Init(LPC_SCT);
+
+	/* Stop the SCT before configuration */
+	Chip_SCTPWM_Stop(LPC_SCT);
+
+	// Match/capture mode register. (ref UM10800 section 16.6.11, Table 232, page 273)
+	// Determines if match/capture operate as match or capture. Want all match.
+	LPC_SCT->REGMODE_U = 0;
+
+
+	// Event 0 control: (ref UM10800 section 16.6.25, Table 247, page 282).
+	// set MATCHSEL (bits 3:0) = MATCH0 register(0)
+	// set COMBMODE (bits 13:12)= MATCH only(1)
+	// So Event0 is triggered on match of MATCH0
+	LPC_SCT->EV[0].CTRL =   (0 << 0 )
+							| 1 << 12;
+	// Event enable register (ref UM10800 section 16.6.24, Table 246, page 281)
+	// Enable Event0 in State0 (default state). We are not using states,
+	// so this enables Event0 in the default State0.
+	// Set STATEMSK0=1
+	LPC_SCT->EV[0].STATE = 1<<0;
+
+
+	// Configure Event2 to be triggered on Match2
+	LPC_SCT->EV[2].CTRL =
+						(2 << 0) // The match register (MATCH2) associated with this event
+						| (1 << 12); // COMBMODE=1 (MATCH only)
+	LPC_SCT->EV[2].STATE = 1; // Enable Event2 in State0 (default state)
+
+
+	/* Clear the output in-case of conflict */
+	int pin = 0;
+	LPC_SCT->RES = (LPC_SCT->RES & ~(3 << (pin << 1))) | (0x01 << (pin << 1));
+
+	/* Set and Clear do not depend on direction */
+	LPC_SCT->OUTPUTDIRCTRL = (LPC_SCT->OUTPUTDIRCTRL & ~((3 << (pin << 1))|SCT_OUTPUTDIRCTRL_RESERVED));
+
+
+	// Set SCT Counter to count 32-bits and reset to 0 after reaching MATCH0
+	Chip_SCT_Config(LPC_SCT, SCT_CONFIG_32BIT_COUNTER | SCT_CONFIG_AUTOLIMIT_L);
+
+	// Setup SCT for ADC/DMA sample timing.
+	uint32_t clock_hz =  Chip_Clock_GetSystemClockRate();
+	Chip_SCT_SetMatchReload(LPC_SCT, SCT_MATCH_2, (clock_hz/TRANSDUCER_FREQUENCY)/2 );
+	Chip_SCT_SetMatchReload(LPC_SCT, SCT_MATCH_0,  clock_hz/TRANSDUCER_FREQUENCY);
+
+	// Using SCT0_OUT3 to trigger ADC sampling
+	// Set SCT0_OUT3 on Event0 (Event0 configured to occur on Match0)
+	LPC_SCT->OUT[0].SET = 1 << 0;
+	LPC_SCT->OUT[1].CLR = 1 << 0;
+
+	// Clear SCT0_OUT3 on Event2 (Event2 configured to occur on Match2)
+	LPC_SCT->OUT[0].CLR = 1 << 2;
+	LPC_SCT->OUT[1].SET = 1 << 2;
+
+	// SwitchMatrix: Assign SCT_OUT3 to external pin for debugging
+	Chip_Clock_EnablePeriphClock(SYSCTL_CLOCK_SWM);
+	Chip_SWM_MovablePinAssign(SWM_SCT_OUT0_O, PIN_TRANSDUCER_TX_A);
+	Chip_SWM_MovablePinAssign(SWM_SCT_OUT1_O, PIN_TRANSDUCER_TX_B);
+	Chip_Clock_DisablePeriphClock(SYSCTL_CLOCK_SWM);
+
+}
+
 void setup_sct_for_adc (void) {
 
 	//
-	// Setup SCT to trigger ADC sampling
+	// Setup SCT to trigger ADC sampling. Configure a square wave with sampling frequency, 50% duty cycle.
 	//
 
 	Chip_SCT_Init(LPC_SCT);
@@ -313,8 +386,7 @@ void setup_sct_for_adc (void) {
 
 int main(void) {
 
-	int i,j;
-
+	int i;
 	//
 	// Initialize GPIO
 	//
@@ -400,12 +472,15 @@ int main(void) {
 	Chip_ADC_EnableSequencer(LPC_ADC, ADC_SEQA_IDX);
 
 
+
+
 	//
 	// Main loop
 	//
 	while (1) {
 
 		// Pulse transducer
+		/*
 		for (i = 0; i < 8; i++) {
 			Chip_GPIO_SetPinState(LPC_GPIO_PORT,0,PIN_TRANSDUCER_TX_A,true);
 			Chip_GPIO_SetPinState(LPC_GPIO_PORT,0,PIN_TRANSDUCER_TX_B,false);
@@ -418,6 +493,15 @@ int main(void) {
 			__NOP();
 			}
 		}
+		*/
+
+		// Setup SCT for driving transducer and start SCT
+		setup_sct_for_transducer();
+		Chip_SCT_ClearControl(LPC_SCT, SCT_CTRL_HALT_L | SCT_CTRL_HALT_H);
+		for (i = 0; i < 200; i++) {
+			__NOP();
+		}
+		Chip_SCT_SetControl(LPC_SCT, SCT_CTRL_HALT_L | SCT_CTRL_HALT_H);
 
 
 		setup_dma_for_adc();
