@@ -1,12 +1,12 @@
 /*
 ===============================================================================
- Name        : LPC824_ADC_DMA_example.c
+ Name        : LPC824_Ultrasonic_Ranger.c
  Author      : Joe Desbonnet, jdesbonnet@gmail.com
  Version     : 1.0 (16 July 2015)
  Copyright   : None.
- Description : Example of how to use the LPC82x (eg LPC824) to read data from the
- ADC data registers directly to SRAM using Direct Memory Access (DMA). This allows
- capturing data at the max data rate (1.2Msps for LPC824) without any CPU intervention.
+ Description : Ultrasonic ranger application. Use SCT to send 40kHz pulse train
+ to TX transducer. RX trandsucer amplified and connected to ADC. Use ADC to SRAM
+ DMA to transfer ADC samples directly to memory.
 
  DMA transfers are limited to 1024 words (which can be 8,16 or 32 bit words). However
  transfers can be chained to facilitate longer data capture. This is illustrated in
