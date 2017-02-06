@@ -23,8 +23,8 @@ Pulse (yellow) and echo (green) on oscilloscope:
 |---| --------| ---------------------|--- |----------|-----------|
 | 1 | ADC3    | RX amp out           | 20 | PIO_0_14 | Debug pin |
 | 2 | ADC9    | 2nd stage RX amp out | 19 | PIO0_0   | UART RXD  |
-| 3 | PIO0_17 | nc                   | 18 | VrefP    | tied to 3.3V  |
-| 4 | PIO0_13 | nc                   | 17 | VrefN    | tied to GND   |
+| 3 | PIO0_13 | nc                   | 18 | VrefP    | tied to 3.3V  |
+| 4 | PIO0_12 | nc                   | 17 | VrefN    | tied to GND   |
 | 5 | RESET   | SWD reset            | 16 | Vss      |           |
 | 6 | PIO0_4  | UART                 | 15 | Vdd      |           |
 | 7 | SWCLK   | SWD clock            | 14 |          |           |
