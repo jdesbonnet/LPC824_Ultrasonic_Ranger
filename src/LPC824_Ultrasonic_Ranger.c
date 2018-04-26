@@ -412,6 +412,16 @@ void setup_sct_for_adc (void) {
 int main(void) {
 
 	int i;
+
+	//
+	// Enable clock to MCU subsystems needed in this application. Need IOCON
+	// to disable pullup on ADC input.
+	//
+    LPC_SYSCON->SYSAHBCLKCTRL |=
+    		(1<<18) // IOCON
+			;
+
+
 	//
 	// Initialize GPIO
 	//
@@ -451,6 +461,10 @@ int main(void) {
 	//
 	// Setup ADC
 	//
+
+	// Disable pullup/pull down on ADC pin: this solves the mysterious
+	// pulling up of the ADC pin to almost Vdd. PIO0_23 = ADC3 = TSSOP package pin 1.
+	Chip_IOCON_PinSetMode(LPC_IOCON, IOCON_PIO23, PIN_MODE_INACTIVE);
 
 	Chip_ADC_Init(LPC_ADC, 0);
 
@@ -559,8 +573,8 @@ int main(void) {
 
 			// Base64 encoded for faster throughput. First byte upper (most
 			// significant) 6 bits of ADC reading, second byte lower 6 bits.
-			print_byte(((adc_buffer[i]>>6)&0x3f) + 'A');
-			print_byte((adc_buffer[i]&0x3f) + 'A');
+			print_byte(((adc_buffer[i]>>6)&0x3f) + '?');
+			print_byte((adc_buffer[i]&0x3f) + '?');
 		}
 		print_byte('\r');
 		print_byte('\n');
