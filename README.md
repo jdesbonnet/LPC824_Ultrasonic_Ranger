@@ -40,3 +40,4 @@ Pulse (yellow) and echo (green) on oscilloscope:
 | 8 | SWDIO   | SWD data             | 13 | PIO0_9   | Transducer TX_B |
 | 9 | PIO0_11 | nc                   | 12 | PIO0_1   | nc              |
 |10 | PIO0_10 | nc                   | 11 | PIO0_15  | Transducer TX_A |
+
