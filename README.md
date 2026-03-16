@@ -28,15 +28,15 @@ Pulse (yellow) and echo (green) on oscilloscope:
 
 ## LPC824 pin utilization
 
-|Pin| Function|                      |Pin | Function |           |
-|---| --------| ---------------------|--- |----------|-----------|
-| 1 | ADC3    | RX amp out           | 20 | PIO_0_14 | Debug pin |
-| 2 | ADC9    | 2nd stage RX amp out | 19 | PIO0_0   | UART RXD  |
-| 3 | PIO0_13 | nc                   | 18 | VrefP    | tied to 3.3V  |
-| 4 | PIO0_12 | nc                   | 17 | VrefN    | tied to GND   |
-| 5 | RESET   | SWD reset            | 16 | Vss      |           |
-| 6 | PIO0_4  | UART TXD             | 15 | Vdd      |           |
-| 7 | SWCLK   | SWD clock            | 14 |          |           |
+|Pin| Function|                      |Pin | Function |                 |
+|---| --------| ---------------------|--- |----------|-----------------|
+| 1 | ADC3    | RX amp out           | 20 | PIO_0_14 | Debug pin       |
+| 2 | ADC9    | 2nd stage RX amp out | 19 | PIO0_0   | UART RXD        |
+| 3 | PIO0_13 | nc                   | 18 | VrefP    | tied to 3.3V    |
+| 4 | PIO0_12 | nc                   | 17 | VrefN    | tied to GND     |
+| 5 | RESET   | SWD reset            | 16 | Vss      |                 |
+| 6 | PIO0_4  | UART TXD             | 15 | Vdd      |                 |
+| 7 | SWCLK   | SWD clock            | 14 | PIO0_8   | nc              |
 | 8 | SWDIO   | SWD data             | 13 | PIO0_9   | Transducer TX_B |
 | 9 | PIO0_11 | nc                   | 12 | PIO0_1   | nc              |
 |10 | PIO0_10 | nc                   | 11 | PIO0_15  | Transducer TX_A |
