@@ -35,7 +35,7 @@ Pulse (yellow) and echo (green) on oscilloscope:
 | 3 | PIO0_13 | nc                   | 18 | VrefP    | tied to 3.3V  |
 | 4 | PIO0_12 | nc                   | 17 | VrefN    | tied to GND   |
 | 5 | RESET   | SWD reset            | 16 | Vss      |           |
-| 6 | PIO0_4  | UART                 | 15 | Vdd      |           |
+| 6 | PIO0_4  | UART TXD             | 15 | Vdd      |           |
 | 7 | SWCLK   | SWD clock            | 14 |          |           |
 | 8 | SWDIO   | SWD data             | 13 | PIO0_9   | Transducer TX_B |
 | 9 | PIO0_11 | nc                   | 12 | PIO0_1   | nc              |
